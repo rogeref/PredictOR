@@ -25,6 +25,7 @@ if (!require('RColorBrewer')) install.packages('RColorBrewer')
 library(RColorBrewer)
 if (!require('ggridges')) install.packages('ggridges')
 library(ggridges)
+
 load("./model_functions.RData")
 
 #### Data import - Training ####
@@ -287,7 +288,9 @@ train_response_expr <-
 
 train_var_mx <- train_response_expr[,-1]
 
-train_response_factor <- factor(train_response_expr[,1], levels=c("OR","NR"))
+train_response_factor <- factor(train_response_expr[,1], levels=c("OR","NR")) %>%
+  relevel(ref = "OR")
+
 
 test_response_mx <-
   test_response %>%
@@ -300,7 +303,8 @@ test_response_expr <-
 
 test_var_mx <- test_response_expr[,-1]
 
-test_response_factor <- factor(test_response_expr[,1], levels=c("OR","NR"))
+test_response_factor <- factor(test_response_expr[,1], levels=c("OR","NR")) %>%
+  relevel(ref = "OR")
 
 rm(train_gexp, train_log_gexp, train_M, train_nzv, train_corrFilt,
    train_nzv_log_gexp, train_processCenter, train_processScale, train_response,
@@ -385,7 +389,7 @@ trctrl <-
 
 #### k-nearest neighbors prediction####
 
-print("Fitting a k-NN models...")
+print("Fitting a k-NN model...")
 
 # Fit a knn model to predict responders based on each trainControl method
 knn_models <- 
@@ -471,7 +475,7 @@ enet_models <-
 
 #### Variable importance filtering with Random Forest ####
 
-RF_vi <- varImp(rfo_models $RandomForest_Bootstrap)$importance %>%
+RF_vi <- varImp(rfo_models$RandomForest_Bootstrap)$importance %>%
   rownames_to_column(var="gene") %>%
   dplyr::rename(imp = Overall) %>%
   mutate(gene_lab = gene) %>%
@@ -483,7 +487,7 @@ write.table(RF_vi, "./out/Variable_importance.txt",
 
 
 # We do it if the number of variables is greater than 10
-if (ncol(train_var_mx) > 30){
+if (ncol(train_var_mx) > 10){
 
   print("Variable importance filtering...")
   
@@ -504,7 +508,7 @@ if (ncol(train_var_mx) > 30){
   
 pdf("./out/variable_importance.pdf", width = 6, height=6)
 
-color <- if (ncol(train_var_mx) > 30) { as.character(RF_vi$importance_cat) 
+color <- if (ncol(train_var_mx) > 10) { as.character(RF_vi$importance_cat) 
   } else {  RF_vi$imp}
 
 cowplot::plot_grid(nrow=1, ncol=2, align = "hv",
@@ -538,7 +542,7 @@ cowplot::plot_grid(nrow=1, ncol=2, align = "hv",
 dev.off()
 
 #### New data with variable importance ####
-if (ncol(train_var_mx) > 30){
+if (ncol(train_var_mx) > 10){
   
   train_var_mx_imp <- 
     train_var_mx[,(RF_vi %>% filter(importance_cat == "Imp"))$gene]
@@ -577,16 +581,6 @@ if (ncol(train_var_mx) > 30){
 
 }
 
-#### Gradient boosting ####
-
-
-
-#### Support vector machine ####
-
-
-
-
-
 #### Merge all models in the same list ####
 
 all_models <- 
@@ -596,12 +590,21 @@ all_models <-
   append(glm_models) %>%
   append(enet_models)
 
-if (ncol(train_var_mx) > 30){
+if (ncol(train_var_mx) > 10){
   
 all_models_imp <-
   append(enet_models_imp,
          glm_models_imp)
 
+}
+
+#### Save the models ####
+
+if (ncol(train_var_mx) > 10){
+  mdls <- append(all_models, all_models_imp)
+  save(mdls, file= "./out/models.RData")
+} else{
+  save(all_models, file = "./out/models.RData")
 }
 
 #### Generate the confusion matrices ####
@@ -626,7 +629,7 @@ all_confusion_mx <-
                       method))
   
     
-if (ncol(train_var_mx) > 30){
+if (ncol(train_var_mx) > 10){
   all_confusion_mx <-
     bind_rows(
       all_confusion_mx
@@ -670,7 +673,7 @@ roc_curves <-
       mutate(cohort = str_to_sentence(cohort)) %>%
       mutate(cohort = factor(cohort, levels=c("Train", "Test")))
     
-if (ncol(train_var_mx) > 30){
+if (ncol(train_var_mx) > 10){
   roc_curves <- 
     bind_rows(
       roc_curves
@@ -709,12 +712,6 @@ ggplot(roc_curves,
   labs(x = "1 - Specificity")
 
 dev.off()
-
-
-#### Save all models ####
-
-save(all_models, file = "models.RData")
-
 
 #### Finalize ####
 
